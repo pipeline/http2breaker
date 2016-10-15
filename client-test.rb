@@ -1,8 +1,21 @@
 require 'http/2'
 require 'optparse'
 require 'socket'
+require 'openssl'
 
 DRAFT = 'h2'.freeze
+
+require './client-plugins/client_plugin.rb'
+
+Dir['client-plugins/*.rb'].each { |file|
+  next if file == 'client-plugins/client_plugin.rb'
+  require "./#{file}"
+}
+
+plugins = []
+ClientPlugin.plugins.each do |plugin|
+  plugins << eval("#{plugin}.new")
+end
 
 class Logger
   def initialize(id)
@@ -18,8 +31,8 @@ options = { port: 8080 }
 OptionParser.new do |opts|
   opts.banner = 'Usage: server.rb [options]'
 
-  opts.on('-s', '--secure', 'HTTPS mode') do |v|
-    options[:secure] = v
+  opts.on('-i', '--insecure', 'Do not use HTTPS (experimental)') do |v|
+    options[:insecure] = v
   end
 
   opts.on('-p', '--port [Integer]', 'listen port') do |v|
@@ -27,10 +40,10 @@ OptionParser.new do |opts|
   end
 end.parse!
 
-puts "Starting server on port #{options[:port]}"
-server = TCPServer.new(options[:port])
+unless options[:insecure]
+  puts "Starting server on port #{options[:port]}"
+  server = TCPServer.new(options[:port])
 
-if options[:secure]
   ctx = OpenSSL::SSL::SSLContext.new
   ctx.cert = OpenSSL::X509::Certificate.new(File.open('keys/server.crt'))
   ctx.key = OpenSSL::PKey::RSA.new(File.open('keys/server.key'))
@@ -44,6 +57,7 @@ if options[:secure]
     DRAFT
   end
 
+  # this is necessary for older versions of Ruby
   #ctx.tmp_ecdh_callback = lambda do |_args|
   #  key = OpenSSL::PKey::EC.new 'prime256v1'
   #  key.generate_key
@@ -91,58 +105,43 @@ loop do
     stream.on(:half_close) do
       log.info 'client closed its end of the stream'
 
-      response = nil
-      #host = 'example.com:8080'
-      host = 'localhost:8080'
-
       if req[':method'] == 'POST'
         log.info "Received POST request, payload: #{buffer}"
         response = "Hello HTTP 2.0! POST payload: #{buffer}"
       else
         log.info 'Received GET request'
-        response = "<head><link rel=\"stylesheet\" type=\"text/css\" href=\"https://#{host}/stylesheet.css\"></head>Hello HTTP 2.0! GET request"
       end
 
-      if req[':path'] != '/'
-        stream.headers({':status' => '404'}, end_headers: true, end_stream: true)
-      else
-
-        css = 'body { background-color: blue; }'
-
-        css_head = {
-          ':method' => 'GET',
-          ':scheme' => 'https',
-          ':path'   => '/stylesheet.css',
-          ':authority' => host,
-          'accept-encoding' => 'gzip, deflate, sdch, br',
-          'accept-language' =>  'en-US,en;q=0.8'
-        }
-
-        css_additional_headers = {
-            ':status' => '200',
-            'content-type' => 'text/css',
-            'content-length' => css.bytesize.to_s
-        }
-
-        promtwo = nil
-
-        prom = stream.promise(css_head, end_headers: true) do |promise|
-          promtwo = promise
-          #promise.data(css)
+      found = false
+      if req[':path'] == '/'
+        found = true
+        response = ''
+        plugins.each do |plugin|
+          response += "<a href=\"/#{plugin.class.name}\">#{plugin.name}</a><br>"
         end
 
         stream.headers({
-                           ':status' => '200',
-                           'content-length' => response.bytesize.to_s,
-                           'content-type' => 'text/html'
-                       }, end_stream: false)
-
-        promtwo.headers(css_additional_headers, end_headers: true)
+          ':status' => '200',
+          'content-length' => response.bytesize.to_s,
+          'content-type' => 'text/html'
+        }, end_stream: false)
 
         # split response into multiple DATA frames
         stream.data(response.slice!(0, 5), end_stream: false)
         stream.data(response)
-        promtwo.data(css)
+      end
+
+      path = req[':path'][1..-1] # remove the preceeding slash
+
+      plugins.each do |plugin|
+        if path == plugin.class.name
+          found = true
+          plugin.run(stream)
+        end
+      end
+
+      unless found
+        stream.headers({':status' => '404'}, end_headers: true, end_stream: true)
       end
     end
   end

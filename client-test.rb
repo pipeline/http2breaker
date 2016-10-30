@@ -2,19 +2,34 @@ require 'http/2'
 require 'optparse'
 require 'socket'
 require 'openssl'
+require 'uri'
+require 'pp'
+require 'cgi'
 
 DRAFT = 'h2'.freeze
 
 require './client-plugins/client_plugin.rb'
+require './server-plugins/server_plugin.rb'
 
 Dir['client-plugins/*.rb'].each { |file|
   next if file == 'client-plugins/client_plugin.rb'
   require "./#{file}"
 }
 
-plugins = []
+Dir['server-plugins/*.rb'].each { |file|
+  next if file == 'server-plugins/server_plugin.rb'
+  require "./#{file}"
+}
+
+
+client_plugins = []
 ClientPlugin.plugins.each do |plugin|
-  plugins << eval("#{plugin}.new")
+  client_plugins << eval("#{plugin}.new")
+end
+
+server_plugins = []
+ServerPlugin.plugins.each do |plugin|
+  server_plugins << eval("#{plugin}.new")
 end
 
 class Logger
@@ -25,6 +40,40 @@ class Logger
   def info(msg)
     puts "[Stream #{@id}]: #{msg}"
   end
+end
+
+def render_default_response(client_plugins, server_plugins, stream, log = '')
+  response = ''
+  client_plugins.each do |plugin|
+    response += "<a href=\"/#{plugin.class.name}\">#{plugin.name}</a><br>"
+  end
+
+  response += "<br><br>Server tests:<br>"
+
+  response += '<form action="/run_server" method="get">'
+  response += 'Test: <select name="test">'
+  server_plugins.each do |plugin|
+    response += "<option value=\"#{plugin.class.name}\">#{plugin.name}</option>"
+  end
+  response += '</select><br>'
+  response += 'URL: <input name="url" value="https://nginx.mi1.nz/"><br>'
+  response += '<input type="submit">'
+  response += '</form>'
+
+  if log != ''
+    response +=  '<br><br>'
+    response += 'Log:<br>'
+    response += log
+  end
+
+  stream.headers({
+                     ':status' => '200',
+                     'content-length' => response.bytesize.to_s,
+                     'content-type' => 'text/html'
+                 }, end_stream: false)
+
+  # split response into multiple DATA frames
+  stream.data(response)
 end
 
 options = { port: 8080 }
@@ -75,7 +124,7 @@ loop do
 
   conn = HTTP2::Server.new
   conn.on(:frame) do |bytes|
-    # puts "Writing bytes: #{bytes.unpack("H*").first}"
+    puts "Writing bytes: #{bytes.unpack("H*").first}"
     sock.write bytes
   end
   conn.on(:frame_sent) do |frame|
@@ -115,25 +164,41 @@ loop do
       found = false
       if req[':path'] == '/'
         found = true
-        response = ''
-        plugins.each do |plugin|
-          response += "<a href=\"/#{plugin.class.name}\">#{plugin.name}</a><br>"
+        render_default_response(client_plugins, server_plugins, stream)
+      end
+
+      if req[':path'].index('/run_server') == 0
+        query = URI(req[':path']).query
+        components = query.split('&')
+
+        test = URI.unescape(components[0].split('=')[1]).gsub('+', ' ')
+        url  = URI.unescape(components[1].split('=')[1])
+
+        puts "Test: #{test}, url: #{url}"
+
+        stream_log = ServerPlugin.run_plugin(url, test)
+        html_log = ''
+
+        if stream_log != nil
+          stream_log.each do |message|
+            puts "Message: #{message}"
+            if message[:direction] == 'info'
+              html_log += '<div style="color: black;">' + CGI::escapeHTML(message[:message]) + '</div>'
+            elsif message[:direction] == 'Outbound'
+              html_log += '<div style="color: green;">Sent: ' + CGI::escapeHTML(message[:message]) + '</div>'
+            else
+              html_log += '<div style="color: blue;">Received: ' + CGI::escapeHTML(message[:message]) + '</div>'
+            end
+          end
         end
 
-        stream.headers({
-          ':status' => '200',
-          'content-length' => response.bytesize.to_s,
-          'content-type' => 'text/html'
-        }, end_stream: false)
-
-        # split response into multiple DATA frames
-        stream.data(response.slice!(0, 5), end_stream: false)
-        stream.data(response)
+        found = true
+        render_default_response(client_plugins, server_plugins, stream, html_log)
       end
 
       path = req[':path'][1..-1] # remove the preceeding slash
 
-      plugins.each do |plugin|
+      client_plugins.each do |plugin|
         if path == plugin.class.name
           found = true
           plugin.run(stream)
@@ -148,7 +213,7 @@ loop do
 
   while !sock.closed? && !(sock.eof? rescue true) # rubocop:disable Style/RescueModifier
     data = sock.readpartial(1024)
-    # puts "Received bytes: #{data.unpack("H*").first}"
+    puts "Received bytes: #{data.unpack("H*").first}"
 
     begin
       conn << data

@@ -27,7 +27,7 @@ class ServerPlugin
 
         #puts result.inspect
 
-        if result
+        if result && !$sock.eof?
           begin
             data = $sock.readpartial(1024000)
             min_time = Time.now.to_i + 5

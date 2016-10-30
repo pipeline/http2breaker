@@ -12,7 +12,9 @@ class ServerPlugin
     self.plugins.each do |plugin|
       plugin = eval("#{plugin}.new")
       if pluginName == plugin.class.name
-        conn = plugin.run(create_connection(url))
+        $conn = create_connection(url)
+        return $server_log if $conn == nil
+        plugin.run($conn)
         plugin_run = true
       end
     end
@@ -26,10 +28,9 @@ class ServerPlugin
         #puts result.inspect
 
         if result
-          data = $sock.readpartial(1024000)
-          min_time = Time.now.to_i + 5
-
           begin
+            data = $sock.readpartial(1024000)
+            min_time = Time.now.to_i + 5
             puts "CLIENT DATA Received bytes: #{data.unpack("H*").first}"
             $conn << data
           rescue => e
@@ -81,7 +82,8 @@ class ServerPlugin
 
       if $sock.npn_protocol != DRAFT
         puts "Failed to negotiate #{DRAFT} via NPN"
-        exit
+        $server_log << { direction: 'info', message: "Failed to negotiate #{DRAFT} via NPN" }
+        return nil
       end
     else
       $sock = tcp

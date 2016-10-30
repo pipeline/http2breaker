@@ -4,8 +4,18 @@ class StreamPrioritySingleLoop < ServerPlugin
   end
 
   def run(client)
-    root_stream = client.new_stream
-    stream_two  = client.new_stream(priority: 42, dependency: root_stream.id)
-    stream_two.reprioritize(30, stream_two.id)
+    head = {
+        ':scheme' => 'https',
+        ':method' => 'GET',
+        ':authority' => 'nginx.mi1.nz:443',
+        ':path' => '/'
+    }
+
+    stream = client.new_stream
+    stream.headers(head, end_stream: false)
+    stream.reprioritize(dependency: stream.id)
+    stream.headers({
+      'something_else' => 'test'
+    }, end_stream: true)
   end
 end

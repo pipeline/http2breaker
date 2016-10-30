@@ -4,11 +4,23 @@ class StreamPriorityLoop < ServerPlugin
   end
 
   def run(client)
-    root_stream = client.new_stream
-    stream_two  = client.new_stream(priority: 42, dependency: root_stream.id)
-    stream_three = client.new_stream(priority: 30, dependency: stream_two.id)
-    stream_two.reprioritize(30, stream_three.id)
+    head = {
+        ':scheme' => 'https',
+        ':method' => 'GET',
+        ':authority' => 'nginx.mi1.nz:443',
+        ':path' => '/'
+    }
 
-    # what if we make stream 4 dependent on itself?
+    stream_two  = client.new_stream
+    stream_two.headers(head, end_stream: false)
+
+    stream_three = client.new_stream
+    stream_three.reprioritize(dependency: stream_two.id)
+    stream_three.headers(head, end_stream: true)
+
+    stream_two.reprioritize(dependency: stream_three.id)
+    stream_two.headers({
+        'something_else' => 'test'
+    }, end_stream: true)
   end
 end

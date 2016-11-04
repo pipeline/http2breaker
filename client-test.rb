@@ -201,7 +201,7 @@ loop do
       client_plugins.each do |plugin|
         if path == plugin.class.name
           found = true
-          plugin.run(stream)
+          plugin.run(stream, conn, sock)
         end
       end
 

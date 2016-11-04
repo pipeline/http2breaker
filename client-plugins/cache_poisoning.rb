@@ -3,7 +3,7 @@ class CachePoisoning < ClientPlugin
     'Cache Poisoning'
   end
 
-  def run(stream)
+  def run(stream, connection, socket)
     host = 'example.com'
     #host = 'localhost:8080'
 

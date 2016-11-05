@@ -21,6 +21,14 @@ Dir['server-plugins/*.rb'].each { |file|
   require "./#{file}"
 }
 
+# monkey patch the class to allow us to override specific variables
+module HTTP2
+  class Connection
+    def set_remote_max_streams(amount)
+      @remote_settings[:settings_max_concurrent_streams] = amount
+    end
+  end
+end
 
 client_plugins = []
 ClientPlugin.plugins.each do |plugin|

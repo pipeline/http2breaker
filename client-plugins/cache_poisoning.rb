@@ -4,8 +4,8 @@ class CachePoisoning < ClientPlugin
   end
 
   def run(stream, connection, socket)
-    host = 'example.com'
-    #host = 'localhost:8080'
+    host = 'nginx.mi1.nz'
+    #host = 'mac.mi1.nz'
 
     response = "<head><link rel=\"stylesheet\" type=\"text/css\" href=\"https://#{host}/stylesheet.css\"></head>If the background is red, cache poisoning worked using server push"
     css = 'body { background-color: red; }'

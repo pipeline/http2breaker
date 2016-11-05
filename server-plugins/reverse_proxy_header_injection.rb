@@ -1,14 +1,15 @@
-class GetTest < ServerPlugin
+class ReverseProxyHeaderInjection < ServerPlugin
   def name
-    'Get Test'
+    'Reverse Proxy Header Injection'
   end
 
   def run(client)
     head = {
-      ':scheme' => 'https',
-      ':method' => 'GET',
-      ':authority' => 'nginx.mi1.nz:443',
-      ':path' => '/'
+        ':scheme' => 'https',
+        ':method' => 'GET',
+        ':authority' => 'nginx.mi1.nz:443',
+        ':path' => '/',
+        'cookie' => "test=one\r\nUser-Agent: httpbreaker"
     }
 
     $stream = $conn.new_stream

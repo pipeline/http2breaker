@@ -1,15 +1,12 @@
-class ReverseProxyHeaderInjection < ServerPlugin
+class ConnectHTTP < ServerPlugin
   def name
-    'Reverse Proxy Header Injection'
+    'Connect (HTTP)'
   end
 
   def run(client, host)
     head = {
-        ':scheme' => 'https',
-        ':method' => 'GET',
-        ':authority' => host,
-        ':path' => '/',
-        'cookie' => "test=one\r\nUser-Agent: httpbreaker"
+        ':method' => 'CONNECT',
+        ':authority' => host
     }
 
     $stream = $conn.new_stream

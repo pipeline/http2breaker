@@ -7,6 +7,7 @@ class ServerPlugin
   end
 
   def self.run_plugin(url, pluginName)
+    uri = URI.parse(url)
     plugin_run = false
     conn = nil
     self.plugins.each do |plugin|
@@ -14,7 +15,7 @@ class ServerPlugin
       if pluginName == plugin.class.name
         $conn = create_connection(url)
         return $server_log if $conn == nil
-        plugin.run($conn)
+        plugin.run($conn, "#{uri.host}:#{uri.port}")
         plugin_run = true
       end
     end

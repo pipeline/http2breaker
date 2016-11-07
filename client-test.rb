@@ -127,108 +127,113 @@ unless options[:insecure]
 end
 
 loop do
-  sock = server.accept
-  puts 'New TCP connection!'
+  begin
+    sock = server.accept
+    puts 'New TCP connection!'
 
-  conn = HTTP2::Server.new
-  conn.on(:frame) do |bytes|
-    puts "Writing bytes: #{bytes.unpack("H*").first}"
-    sock.write bytes
-  end
-  conn.on(:frame_sent) do |frame|
-    puts "Sent frame: #{frame.inspect}"
-  end
-  conn.on(:frame_received) do |frame|
-    puts "Received frame: #{frame.inspect}"
-  end
-
-  conn.on(:stream) do |stream|
-    log = Logger.new(stream.id)
-    req, buffer = {}, ''
-
-    stream.on(:active) { log.info 'client opened new stream' }
-    stream.on(:close)  { log.info 'stream closed' }
-
-    stream.on(:headers) do |h|
-      req = Hash[*h.flatten]
-      log.info "request headers: #{h}"
+    conn = HTTP2::Server.new
+    conn.on(:frame) do |bytes|
+      puts "Writing bytes: #{bytes.unpack("H*").first}"
+      sock.write bytes
+    end
+    conn.on(:frame_sent) do |frame|
+      puts "Sent frame: #{frame.inspect}"
+    end
+    conn.on(:frame_received) do |frame|
+      puts "Received frame: #{frame.inspect}"
     end
 
-    stream.on(:data) do |d|
-      log.info "payload chunk: <<#{d}>>"
-      buffer << d
-    end
+    conn.on(:stream) do |stream|
+      log = Logger.new(stream.id)
+      req, buffer = {}, ''
 
-    stream.on(:half_close) do
-      log.info 'client closed its end of the stream'
+      stream.on(:active) { log.info 'client opened new stream' }
+      stream.on(:close)  { log.info 'stream closed' }
 
-      if req[':method'] == 'POST'
-        log.info "Received POST request, payload: #{buffer}"
-        response = "Hello HTTP 2.0! POST payload: #{buffer}"
-      else
-        log.info 'Received GET request'
+      stream.on(:headers) do |h|
+        req = Hash[*h.flatten]
+        log.info "request headers: #{h}"
       end
 
-      found = false
-      if req[':path'] == '/'
-        found = true
-        render_default_response(client_plugins, server_plugins, stream)
+      stream.on(:data) do |d|
+        log.info "payload chunk: <<#{d}>>"
+        buffer << d
       end
 
-      if req[':path'].index('/run_server') == 0
-        query = URI(req[':path']).query
-        components = query.split('&')
+      stream.on(:half_close) do
+        log.info 'client closed its end of the stream'
 
-        test = URI.unescape(components[0].split('=')[1]).gsub('+', ' ')
-        url  = URI.unescape(components[1].split('=')[1])
+        if req[':method'] == 'POST'
+          log.info "Received POST request, payload: #{buffer}"
+          response = "Hello HTTP 2.0! POST payload: #{buffer}"
+        else
+          log.info 'Received GET request'
+        end
 
-        puts "Test: #{test}, url: #{url}"
+        found = false
+        if req[':path'] == '/'
+          found = true
+          render_default_response(client_plugins, server_plugins, stream)
+        end
 
-        stream_log = ServerPlugin.run_plugin(url, test)
-        html_log = ''
+        if req[':path'].index('/run_server') == 0
+          query = URI(req[':path']).query
+          components = query.split('&')
 
-        if stream_log != nil
-          stream_log.each do |message|
-            puts "Message: #{message}"
-            if message[:direction] == 'info'
-              html_log += '<div style="color: black;">' + CGI::escapeHTML(message[:message]) + '</div>'
-            elsif message[:direction] == 'Outbound'
-              html_log += '<div style="color: green;">Sent: ' + CGI::escapeHTML(message[:message]) + '</div>'
-            else
-              html_log += '<div style="color: blue;">Received: ' + CGI::escapeHTML(message[:message]) + '</div>'
+          test = URI.unescape(components[0].split('=')[1]).gsub('+', ' ')
+          url  = URI.unescape(components[1].split('=')[1])
+
+          puts "Test: #{test}, url: #{url}"
+
+          stream_log = ServerPlugin.run_plugin(url, test)
+          html_log = ''
+
+          if stream_log != nil
+            stream_log.each do |message|
+              puts "Message: #{message}"
+              if message[:direction] == 'info'
+                html_log += '<div style="color: black;">' + CGI::escapeHTML(message[:message]) + '</div>'
+              elsif message[:direction] == 'Outbound'
+                html_log += '<div style="color: green;">Sent: ' + CGI::escapeHTML(message[:message]) + '</div>'
+              else
+                html_log += '<div style="color: blue;">Received: ' + CGI::escapeHTML(message[:message]) + '</div>'
+              end
             end
+          end
+
+          found = true
+          render_default_response(client_plugins, server_plugins, stream, html_log)
+        end
+
+        path = req[':path'][1..-1] # remove the preceeding slash
+
+        client_plugins.each do |plugin|
+          if path == plugin.class.name
+            found = true
+            plugin.run(stream, conn, sock)
           end
         end
 
-        found = true
-        render_default_response(client_plugins, server_plugins, stream, html_log)
-      end
-
-      path = req[':path'][1..-1] # remove the preceeding slash
-
-      client_plugins.each do |plugin|
-        if path == plugin.class.name
-          found = true
-          plugin.run(stream, conn, sock)
+        unless found
+          stream.headers({':status' => '404'}, end_headers: true, end_stream: true)
         end
       end
+    end
 
-      unless found
-        stream.headers({':status' => '404'}, end_headers: true, end_stream: true)
+    while !sock.closed? && !(sock.eof? rescue true) # rubocop:disable Style/RescueModifier
+      data = sock.readpartial(1024)
+      puts "Received bytes: #{data.unpack("H*").first}"
+
+      begin
+        conn << data
+      rescue => e
+        puts "#{e.class} exception: #{e.message} - closing socket."
+        e.backtrace.each { |l| puts "\t" + l }
+        sock.close
       end
     end
-  end
-
-  while !sock.closed? && !(sock.eof? rescue true) # rubocop:disable Style/RescueModifier
-    data = sock.readpartial(1024)
-    puts "Received bytes: #{data.unpack("H*").first}"
-
-    begin
-      conn << data
-    rescue => e
-      puts "#{e.class} exception: #{e.message} - closing socket."
-      e.backtrace.each { |l| puts "\t" + l }
-      sock.close
-    end
+  rescue => e
+    puts "Exception: #{e.inspect}"
   end
 end
+

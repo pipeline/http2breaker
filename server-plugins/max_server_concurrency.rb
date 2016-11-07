@@ -3,11 +3,11 @@ class MaxServerConcurrency < ServerPlugin
     'Maximum Concurrency'
   end
 
-  def run(client)
+  def run(client, host)
     head = {
         ':scheme' => 'https',
         ':method' => 'POST',
-        ':authority' => 'nginx.mi1.nz:443',
+        ':authority' => host,
         ':path' => '/',
         'content_length' => "#{1024*101}"
     }

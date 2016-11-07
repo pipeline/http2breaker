@@ -3,7 +3,7 @@ class ErrorLoop < ServerPlugin
     'Error Loop'
   end
 
-  def run(client)
+  def run(client, host)
     client.on(:goaway) do |err|
       $server_log << { direction: 'info', message: "Error thrown: #{err.inspect}" }
       client.goaway(:internal_error)
@@ -12,7 +12,7 @@ class ErrorLoop < ServerPlugin
     head = {
         ':scheme' => 'https',
         ':method' => 'GET',
-        ':authority' => 'nginx.mi1.nz:443',
+        ':authority' => host,
         ':path' => '/'
     }
 

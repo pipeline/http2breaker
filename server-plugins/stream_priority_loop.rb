@@ -3,11 +3,11 @@ class StreamPriorityLoop < ServerPlugin
     'Stream Priority Loop'
   end
 
-  def run(client)
+  def run(client, host)
     head = {
         ':scheme' => 'https',
         ':method' => 'GET',
-        ':authority' => 'nginx.mi1.nz:443',
+        ':authority' => host,
         ':path' => '/'
     }
 

@@ -76,14 +76,16 @@ class ServerPlugin
         DRAFT if protocols.include? DRAFT
       end
 
+      ctx.alpn_protocols = [DRAFT]
+
       $sock = OpenSSL::SSL::SSLSocket.new(tcp, ctx)
       $sock.sync_close = true
       $sock.hostname = uri.hostname
       $sock.connect
 
-      if $sock.npn_protocol != DRAFT
-        puts "Failed to negotiate #{DRAFT} via NPN"
-        $server_log << { direction: 'info', message: "Failed to negotiate #{DRAFT} via NPN" }
+      if $sock.npn_protocol != DRAFT && $sock.alpn_protocol != DRAFT
+        puts "Failed to negotiate #{DRAFT} via NPN/ALPN"
+        $server_log << { direction: 'info', message: "Failed to negotiate #{DRAFT} via NPN/ALPN" }
         return nil
       end
     else

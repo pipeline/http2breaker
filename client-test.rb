@@ -1,3 +1,5 @@
+#!/usr/bin/env ruby
+
 require 'http/2'
 require 'optparse'
 require 'socket'
@@ -50,7 +52,7 @@ class Logger
   end
 end
 
-def render_default_response(client_plugins, server_plugins, stream, log = '')
+def render_default_response(client_plugins, server_plugins, stream, log = '', url = 'https://nginx.mi1.nz/', current_plugin = '')
   response = ''
   client_plugins.each do |plugin|
     response += "<a href=\"/#{plugin.class.name}\">#{plugin.name}</a><br>"
@@ -61,10 +63,10 @@ def render_default_response(client_plugins, server_plugins, stream, log = '')
   response += '<form action="/run_server" method="get">'
   response += 'Test: <select name="test">'
   server_plugins.each do |plugin|
-    response += "<option value=\"#{plugin.class.name}\">#{plugin.name}</option>"
+    response += "<option value=\"#{plugin.class.name}\" #{current_plugin == plugin.class.name ? 'selected="true"' : ''}>#{plugin.name}</option>"
   end
   response += '</select><br>'
-  response += 'URL: <input name="url" value="https://nginx.mi1.nz/"><br>'
+  response += 'URL: <input name="url" value="' + URI.escape(url) + '"><br>'
   response += '<input type="submit">'
   response += '</form>'
 
@@ -202,7 +204,7 @@ loop do
           end
 
           found = true
-          render_default_response(client_plugins, server_plugins, stream, html_log)
+          render_default_response(client_plugins, server_plugins, stream, html_log, url, test)
         end
 
         path = req[':path'][1..-1] # remove the preceeding slash

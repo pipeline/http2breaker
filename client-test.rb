@@ -123,7 +123,7 @@ unless options[:insecure]
   #  key
   #end
 
-  ctx.ecdh_curves = "P-256"
+  #ctx.ecdh_curves = "P-256"
 
   server = OpenSSL::SSL::SSLServer.new(server, ctx)
 end
